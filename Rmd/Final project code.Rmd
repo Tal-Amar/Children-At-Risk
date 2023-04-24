@@ -29,7 +29,7 @@ library(ROCR)
 ```
 ### Data:
 ```{r}
-dataset = read.csv("C:\\Users\\Yarin\\Documents\\Children_at_risk.csv")
+dataset = read.csv("C:\\Tal\\Data Engineer\\BSc\\semester 4\\Advanced programming\\project\\children_at_risk\\data\\Children_at_risk.csv")
 datasetA <- dataset %>%
   filter(Test == 'A') %>% 
   mutate(Hope_A = Q1+Q2+Q3+Q4+Q5+Q6+Q7+(5-Q8)+Q9+(5-Q10)+(5-Q11)) %>% 

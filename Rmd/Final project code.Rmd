@@ -1,0 +1,313 @@
+---
+title: "Final project code"
+author: "Team AI"
+date: '2022-06-24'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### import
+```{r,message=FALSE}
+library(tidyverse)
+library(caTools)
+library(randomForest)
+library(caret)
+library(e1071)
+library(rpart)
+library(tidymodels)
+library(schrute)
+library(lubridate)
+library(quantreg)
+library(pROC)
+library(klaR)
+library(psych)
+library(MASS)
+library(devtools)
+library(ROCR)
+```
+### Data:
+```{r}
+dataset = read.csv("C:\\Users\\Yarin\\Documents\\Children_at_risk.csv")
+datasetA <- dataset %>%
+  filter(Test == 'A') %>% 
+  mutate(Hope_A = Q1+Q2+Q3+Q4+Q5+Q6+Q7+(5-Q8)+Q9+(5-Q10)+(5-Q11)) %>% 
+  dplyr::select(Id,Hope_A)
+
+datasetB <- dataset %>%
+  filter(Test == 'B') %>% 
+  mutate(Hope_B = Q1+Q2+Q3+Q4+Q5+Q6+Q7+(5-Q8)+Q9+(5-Q10)+(5-Q11)) %>% 
+  dplyr::select(Id,Hope_B)
+
+datasetC <- dataset %>%
+  filter(Test == 'C') %>% 
+  mutate(Hope_C = Q1+Q2+Q3+Q4+Q5+Q6+Q7+(5-Q8)+Q9+(5-Q10)+(5-Q11)) %>% 
+  dplyr::select(Id,Hope_C)
+
+dataset = left_join(dataset,left_join(datasetA,left_join(datasetB,datasetC)))
+dataset <- dataset %>%
+  mutate(n_of_t = T1+T2+T3+T4+T5+T6+T7+T8+T9+T10,Hope = Q1+Q2+Q3+Q4+Q5+Q6+Q7+(5-Q8)+Q9+(5-Q10)+(5-Q11))
+```
+
+
+### Inital hypothesis tests:
+
+- test 1:
+Compare the Hope at first survey and third 
+```{r}
+Hope_1 <- dataset %>%
+  filter(Test == 'A') %>% 
+  dplyr::select(Hope)
+
+Hope_3 <- dataset %>%
+  filter(Test == 'C') %>% 
+  dplyr::select(Hope)
+
+t.test(Hope_3$Hope,Hope_1$Hope,paired = TRUE ,alternative = 'greater')
+```
+- test 2:
+Compare the change of Hope from second to first survey among children who served and doesn't served
+```{r}
+army_1 <- dataset %>%
+  filter(Test == 'A' ,(A4 == 1 | A5 == 1)) %>% 
+  dplyr::select(Hope)
+
+army_3 <- dataset %>%
+  filter(Test == 'B' ,(A4 == 1 | A5 == 1)) %>% 
+  dplyr::select(Hope)
+
+no_army_1 <- dataset %>%
+  filter(Test == 'A', A4 == 0,A5 == 0) %>% 
+  dplyr::select(Hope)
+
+no_army_3 <- dataset %>%
+  filter(Test == 'B', A4 == 0,A5 == 0) %>% 
+  dplyr::select(Hope)
+
+vec1 = army_3$Hope - army_1$Hope
+vec2 = no_army_3$Hope - no_army_1$Hope
+
+
+t.test(vec1,vec2,paired = FALSE ,alternative = 'greater')
+```
+
+### Regression models:
+
+Predicting the Hope at third survey
+```{r}
+# Selecting the features
+reg_data = dataset %>% 
+  filter(Test == 'A') %>% 
+  dplyr::select(Religiousness,Permanency,A4,n_of_t,Hope_A,Hope_B,Hope_C)
+
+# Setting seed
+set.seed(1234)
+
+# Splitting the data train-test split
+split = sample.split(reg_data$Hope_C, SplitRatio = 0.8)
+training_set = subset(reg_data, split == TRUE)
+test_set = subset(reg_data, split == FALSE)
+```
+
+- Model 1 Random forest:
+```{r}
+# Create regressor
+RF_regressor = randomForest(x = training_set[-7],
+                         y = training_set$Hope_C,
+                         ntree = 100)
+# Predict test result
+y_pred = predict(RF_regressor, test_set[-7])
+
+# Calculate MSE
+e = test_set[7] - y_pred
+e2 = e*e
+mse = mean(e2$Hope_C)
+
+# Calculate RSQR
+res <- caret::postResample(test_set[7],y_pred)
+rsq <- res[2]
+
+# Print results
+print(paste0("Random forest- MSE: ",mse))
+print(paste0("Random forest- RSQR: ",rsq))
+```
+- Model 2 SVR:
+```{r}
+# Create regressor
+SVR_regressor = svm(formula = Hope_C ~ .,
+                data = training_set,
+                type = 'eps-regression',
+                kernel = 'radial')
+
+# Predict test result
+y_pred = predict(SVR_regressor, test_set[-7])
+
+# Calculate MSE
+e = test_set[7] - y_pred
+e2 = e*e
+mse = mean(e2$Hope_C)
+
+# Calculate RSQR
+res <- caret::postResample(test_set[7],y_pred)
+rsq <- res[2]
+
+# Print results
+print(paste0("SVR- MSE: ",mse))
+print(paste0("SVR- RSQR: ",rsq))
+```
+- Model 3 Decision tree:
+```{r}
+# Create regressor
+DT_regressor = rpart(formula = Hope_C ~ .,
+                  data = training_set,
+                  control = rpart.control(minsplit = 15))
+
+# Predict test result
+y_pred = predict(DT_regressor, test_set[-7])
+
+# Calculate MSE
+e = test_set[7] - y_pred
+e2 = e*e
+mse = mean(e2$Hope_C)
+
+# Calculate RSQR
+res <- caret::postResample(test_set[7],y_pred)
+rsq <- res[2]
+
+# Print results
+print(paste0("Decision tree- MSE: ",mse))
+print(paste0("Decision tree- RSQR: ",rsq))
+```
+- Model 4 Linear Regression:
+```{r}
+# Create regressor
+LM_regressor = lm(formula = Hope_C ~ .,
+               data = training_set)
+
+# Predict test result
+y_pred = predict(LM_regressor, test_set[-7])
+
+# Calculate MSE
+e = test_set[7] - y_pred
+e2 = e*e
+mse = mean(e2$Hope_C)
+
+# Calculate RSQR
+res <- caret::postResample(test_set[7],y_pred)
+rsq <- res[2]
+
+# Print results
+print(paste0("Random forest- MSE: ",mse))
+print(paste0("Random forest- RSQR: ",rsq))
+```
+- Model 5 Quantile regression:
+```{r}
+# Create regressor
+Quan_regressor <- rq(Hope_C ~ ., data = training_set)
+
+# Predict test result
+y_pred = predict(Quan_regressor, test_set[-7])
+
+# Calculate MSE
+e = test_set[7] - y_pred
+e2 = e*e
+mse = mean(e2$Hope_C)
+
+# Calculate RSQR
+res <- caret::postResample(test_set[7],y_pred)
+rsq <- res[2]
+
+# Print results
+print(paste0("Quantile regression- MSE: ",mse))
+print(paste0("Quantile regression- RSQR: ",rsq))
+```
+### Additinal hypothesis test
+```{r}
+H_data = dataset %>% 
+  filter(Test == 'A') %>% 
+  mutate(served = ifelse(A4==1|A5==1,1,0)) %>% 
+  mutate(Hope_A = ifelse(Hope_A>median(dataset$Hope_B),1,0),Hope_B = ifelse(Hope_B>median(dataset$Hope_B),1,0)) %>% 
+  dplyr::select(Religiousness,Permanency,n_of_t,served,Hope_A,Hope_B)
+
+Hope_1 <- H_data %>%
+  filter(served == 1) %>% 
+  dplyr::select(Hope_B)
+
+Hope_3 <- H_data %>%
+  filter(served == 0) %>% 
+  dplyr::select(Hope_B)
+
+t.test(Hope_1$Hope_B,Hope_3$Hope_B,paired = FALSE ,alternative = 'greater')
+```
+
+
+
+### Classification models:
+
+Predicting whether the hope of the child will increase or decrease in the second survey
+
+```{r}
+
+# Selecting the features
+CL_data = dataset %>% 
+  filter(Test == 'A') %>% 
+  mutate(served = ifelse(A4==1|A5==1,1,0)) %>% 
+  mutate(Hope_A = ifelse(Hope_A>median(dataset$Hope_B),1,0),Hope_B = ifelse(Hope_B>median(dataset$Hope_B),1,0)) %>% 
+  dplyr::select(Religiousness,Permanency,n_of_t,served,Hope_A,Hope_B)
+
+# Factor the binary feature
+CL_data$Hope_B = as.factor(CL_data$Hope_B)
+
+# Setting seed
+set.seed(123)
+
+# Splitting the data train-test split
+training.samples <- CL_data$served %>% 
+  createDataPartition(p = 0.7, list = FALSE)
+train.data  <- CL_data[training.samples, ]
+test.data <- CL_data[-training.samples,]
+
+# Create classifier
+# Set CV with 5 folds
+trainC = trainControl(method = "cv",number = 5,savePredictions = T )
+model <- train(Hope_B ~. , data = train.data,method="glm", family = "binomial",trControl = trainC)
+summary(model)
+model
+probabilities <- model %>% predict(test.data, type = "prob")
+```
+
+```{r}
+
+# Predict test result
+pred = prediction(probabilities$'1', test.data$Hope_B)
+
+# Create ROC curve
+roc = performance(pred,"tpr","fpr")
+plot(roc, colorize = T, lwd = 2)
+abline(a = 0, b = 1) 
+
+# Create PR curve
+pr = performance(pred,"prec","rec")
+plot(pr, colorize = T, lwd = 2)
+abline(a = 0.5, b=0) 
+
+# Find the best threshold
+prediction(probabilities[2], test.data$Hope_B) %>%
+  performance(measure = "tpr", x.measure = "fpr") -> result
+
+plotdata <- data.frame(x = result@x.values[[1]],
+                       y = result@y.values[[1]], 
+                       p = result@alpha.values[[1]])
+
+dist_vec <- plotdata$x^2 + (1 - plotdata$y)^2
+opt_pos <- which.min(dist_vec)
+
+print(paste0("Best threshold is: p = ",round(plotdata[opt_pos, ]$p, 3)))
+
+```
+```{r}
+# Create confusion matrix
+cm = table(test.data$Hope_B, probabilities$`1` > 0.343)
+cm
+```
